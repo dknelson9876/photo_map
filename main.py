@@ -1,5 +1,6 @@
 import customtkinter
 import tkinter
+from tkinter import ttk
 import tkinter.filedialog
 from tkintermapview import TkinterMapView
 from exif import Image as Ex_Image
@@ -43,7 +44,22 @@ class App(customtkinter.CTk):
 
         self.config(menu=menubar)
 
-        self.marker_list = []
+        self.marker_list = dict()  # <treeview iid, marker>
+
+        # Theme ttk Treeview
+        bg_color = self._apply_appearance_mode(
+            customtkinter.ThemeManager.theme['CTkFrame']['fg_color'])
+        text_color = self._apply_appearance_mode(
+            customtkinter.ThemeManager.theme['CTkLabel']['text_color'])
+        selected_color = self._apply_appearance_mode(
+            customtkinter.ThemeManager.theme['CTkButton']['fg_color'])
+        treestyle = ttk.Style()
+        treestyle.theme_use('default')
+        treestyle.configure('Treeview', background=bg_color,
+                            foreground=text_color, fieldbackground=bg_color, borderwidth=0)
+        treestyle.map('Treeview', background=[('selected', bg_color)], foreground=[
+                      ('selected', selected_color)])
+        self.bind('<<TreeviewSelect>>', lambda event: self.focus_set())
 
         # --Create two CtkFrames
 
@@ -72,6 +88,11 @@ class App(customtkinter.CTk):
                                                 text='Clear Markers',
                                                 command=self.clear_marker_event)
         self.button_2.grid(pady=(20, 0), padx=(20, 20), row=1, column=0)
+
+        self.treeview = ttk.Treeview(self.frame_left, show='tree')
+        self.treeview.grid(row=2, column=0, sticky='nsew')
+        self.treeview.tag_bind(
+            'item', '<<TreeviewSelect>>', self.on_item_select)
 
         self.map_label = customtkinter.CTkLabel(
             self.frame_left, text='Tile Server:', anchor='w')
@@ -122,14 +143,25 @@ class App(customtkinter.CTk):
     def search_event(self, event=None):
         self.map_widget.set_address(self.entry.get())
 
+    def on_item_select(self, event=None):
+        iid = self.treeview.selection()[0]
+        # TODO: Handle that this might be a folder instead of a single item
+        marker = self.marker_list[iid]
+        self.map_widget.set_position(marker.position[0], marker.position[1])
+
     def set_marker_event(self):
         current_position = self.map_widget.get_position()
-        self.marker_list.append(self.map_widget.set_marker(
-            current_position[0], current_position[1]))
+        iid = self.treeview.insert(
+            '', tkinter.END, text=f'Marker {len(self.marker_list)}', tags='item')
+        self.marker_list[iid] = self.map_widget.set_marker(
+            current_position[0], current_position[1])
+        # self.marker_list.append(self.map_widget.set_marker(
 
     def clear_marker_event(self):
-        for marker in self.marker_list:
-            marker.delete()
+        self.map_widget.delete_all_marker()
+        for iid in self.marker_list:
+            self.treeview.delete(iid)
+        self.marker_list.clear()
 
     def change_appearance_mode(self, new_appearance_mode: str):
         customtkinter.set_appearance_mode(new_appearance_mode)
@@ -168,7 +200,8 @@ class App(customtkinter.CTk):
 
         mark = self.map_widget.set_marker(
             coords[0], coords[1], image=ImageTk.PhotoImage(Pil_Image.open(filename).resize((100, 100))))
-        self.marker_list.append(mark)
+        # self.marker_list.append(mark)
+
         self.map_widget.set_position(coords[0], coords[1])
 
     def on_closing(self, event=0):
