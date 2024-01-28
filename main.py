@@ -6,6 +6,7 @@ from tkintermapview import TkinterMapView
 from exif import Image as Ex_Image
 from PIL import ImageTk
 from PIL import Image as Pil_Image
+import os
 
 customtkinter.set_default_color_theme("blue")
 
@@ -165,7 +166,6 @@ class App(customtkinter.CTk):
             '', tkinter.END, text=f'Marker {len(self.marker_list)}', tags='item')
         self.marker_list[iid] = self.map_widget.set_marker(
             current_position[0], current_position[1])
-        # self.marker_list.append(self.map_widget.set_marker(
 
     def clear_marker_event(self):
         self.map_widget.delete_all_marker()
@@ -205,9 +205,11 @@ class App(customtkinter.CTk):
             print('Image has no coords')
             return
 
+        iid = self.treeview.insert(
+            '', tkinter.END, text=os.path.basename(filename), tags='item')
         mark = self.map_widget.set_marker(
             coords[0], coords[1], image=ImageTk.PhotoImage(Pil_Image.open(filename).resize((100, 100))))
-        # self.marker_list.append(mark)
+        self.marker_list[iid] = mark
 
         self.map_widget.set_position(coords[0], coords[1])
 
