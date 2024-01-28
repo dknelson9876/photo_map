@@ -205,6 +205,7 @@ class App(customtkinter.CTk):
     def search_event(self, event=None):
         self.map_widget.set_address(self.entry.get())
 
+    # Event listener for clicking an item in the treeview
     def on_item_select(self, event=None):
         iid = self.treeview.selection()[0]
         # TODO: Handle that this might be a folder instead of a single item
@@ -214,13 +215,22 @@ class App(customtkinter.CTk):
         self.lat_str.set(str(marker.position[0]))
         self.long_str.set(str(marker.position[1]))
 
+    # Event Listener for left click on the map
     def on_coord_select(self, coords):
         if self.sel_coords:
             self.sel_coords.set_position(coords[0], coords[1])
         else:
             self.sel_coords = self.map_widget.set_marker(
-                coords[0], coords[1], marker_color_outside='blue', marker_color_circle='blue')
+                coords[0],
+                coords[1],
+                marker_color_outside='blue',
+                marker_color_circle='blue'
+            )
 
+    # Event Listener for the 'Update Location' button
+    #  sets the coordinates of the currently selected item
+    #  in the treeview to the location that is selected on the map
+    # TODO: Escape to unselect a location on the map?
     def on_update_location(self, event=None):
         if self.sel_coords == None:
             return
@@ -232,12 +242,14 @@ class App(customtkinter.CTk):
         marker.set_position(new_coords[0], new_coords[1])
         # Update in treeview
         self.treeview.item(iid,
-                           values=(tkintermapview.convert_coordinates_to_city(new_coords[0], new_coords[1]),
+                           values=(tkintermapview.convert_coordinates_to_city(new_coords[0],
+                                                                              new_coords[1]),
                                    new_coords[0],
                                    new_coords[1]
                                    )
                            )
 
+    # Event Listener for the 'Set Marker' button
     def set_marker_event(self):
         new_pos = self.map_widget.get_position()
         iid = self.treeview.insert(
@@ -245,35 +257,35 @@ class App(customtkinter.CTk):
             tkinter.END,
             text=f'Marker {len(self.marker_list)}',
             tags='item',
-            values=(tkintermapview.convert_coordinates_to_city(new_pos[0], new_pos[1]), new_pos[0], new_pos[1]))  # place, lat, long
+            # place, lat, long
+            values=(tkintermapview.convert_coordinates_to_city(new_pos[0],
+                                                               new_pos[1]),
+                    new_pos[0],
+                    new_pos[1]
+                    )
+        )
         self.marker_list[iid] = self.map_widget.set_marker(
             new_pos[0], new_pos[1])
 
+    # Event listener for the 'Clear Markers' button
+    # Removes all markers from the map and all items from the treeview
     def clear_marker_event(self):
         self.map_widget.delete_all_marker()
         for iid in self.marker_list:
             self.treeview.delete(iid)
         self.marker_list.clear()
 
-    def change_map(self, new_map: str):
-        if new_map == 'OpenStreetMap':
-            self.map_widget.set_tile_server(
-                'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png')
-        elif new_map == 'Google normal':
-            self.map_widget.set_tile_server(
-                'https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga', max_zoom=22)
-        elif new_map == 'Google sat':
-            self.map_widget.set_tile_server(
-                'https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga', max_zoom=22)
-
+    # Event listener for the 'Open Image' option under the file menu
+    #  Adds the opened image to the treeview, and if it has location metadata,
+    #  to the map as well
     def on_open_image(self):
         filename = tkinter.filedialog.askopenfilename(
             title='Open Image', filetypes=[('Image File', '*.jpg *.png')])
         if filename == '':
-            print("Canceled")
+            print('Canceled')
             return
 
-        print(filename)
+        print(f'Opening {filename}')
         with open(filename, 'rb') as src:
             img = Ex_Image(src)
         if img.has_exif:
@@ -293,6 +305,7 @@ class App(customtkinter.CTk):
             print('Image has no metadata')
             return
 
+        # Add to treeview
         iid = self.treeview.insert(
             '',
             tkinter.END,
@@ -301,10 +314,17 @@ class App(customtkinter.CTk):
             values=(tkintermapview.convert_coordinates_to_city(
                 coords[0], coords[1]), coords[0], coords[1])
         )
+        # Add to map
         mark = self.map_widget.set_marker(
-            coords[0], coords[1], image=ImageTk.PhotoImage(Pil_Image.open(filename).resize((100, 100))))
+            coords[0],
+            coords[1],
+            image=ImageTk.PhotoImage(
+                Pil_Image.open(filename).resize((100, 100))
+            )
+        )
+        # store reference to map marker
         self.marker_list[iid] = mark
-
+        # center map on new marker
         self.map_widget.set_position(coords[0], coords[1])
 
     def on_closing(self, event=0):
