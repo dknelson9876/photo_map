@@ -35,18 +35,32 @@ class App(customtkinter.CTk):
         # self.bind("<Command-w>", self.on_closing)
         self.createcommand('tk::mac::Quit', self.on_closing)
 
+        # -- Menubar
+
         menubar = tkinter.Menu(self)
+
         file_menu = tkinter.Menu(menubar, tearoff=0)
         menubar.add_cascade(label='File', menu=file_menu)
         file_menu.add_command(label='Open Image', command=self.on_open_image)
         file_menu.add_separator()
         file_menu.add_command(label='Exit', command=self.on_closing)
 
+        view_menu = tkinter.Menu(menubar, tearoff=0)
+        appearance_menu = tkinter.Menu(menubar, tearoff=0)
+        appearance_menu.add_radiobutton(
+            label='Dark', command=lambda: customtkinter.set_appearance_mode('Dark'))
+        appearance_menu.add_radiobutton(
+            label='Light', command=lambda: customtkinter.set_appearance_mode('Light'))
+        appearance_menu.add_radiobutton(
+            label='System', command=lambda: customtkinter.set_appearance_mode('System'))
+        view_menu.add_cascade(label='Appearance', menu=appearance_menu)
+        menubar.add_cascade(label='View', menu=view_menu)
+
         self.config(menu=menubar)
 
         self.marker_list = dict()  # <treeview iid, marker>
 
-        # Theme ttk Treeview
+        # --Theme ttk Treeview
         bg_color = self._apply_appearance_mode(
             customtkinter.ThemeManager.theme['CTkFrame']['fg_color'])
         text_color = self._apply_appearance_mode(
@@ -59,6 +73,21 @@ class App(customtkinter.CTk):
                             foreground=text_color, fieldbackground=bg_color, borderwidth=0)
         treestyle.map('Treeview', background=[('selected', bg_color)], foreground=[
                       ('selected', selected_color)])
+
+        def treeview_update_appearance(appearance):
+            x = 0
+            if appearance == 'Dark':
+                x = 1
+
+            background = customtkinter.ThemeManager.theme['CTkFrame']['fg_color'][x]
+            text = customtkinter.ThemeManager.theme['CTkLabel']['text_color'][x]
+            select = customtkinter.ThemeManager.theme['CTkButton']['fg_color'][x]
+            treestyle.configure('Treeview', background=background,
+                                foreground=text, fieldbackground=background)
+            treestyle.map('Treeview', background=[
+                          ('selected', background)], foreground=[('selected', select)])
+        customtkinter.AppearanceModeTracker.add(treeview_update_appearance)
+
         self.bind('<<TreeviewSelect>>', lambda event: self.focus_set())
 
         # --Create two CtkFrames
@@ -77,6 +106,7 @@ class App(customtkinter.CTk):
 
         # frame_left
 
+        # set second row (treeview) to take up as much space as it can
         self.frame_left.grid_rowconfigure(2, weight=1)
 
         self.button_1 = customtkinter.CTkButton(master=self.frame_left,
@@ -93,24 +123,6 @@ class App(customtkinter.CTk):
         self.treeview.grid(row=2, column=0, sticky='nsew')
         self.treeview.tag_bind(
             'item', '<<TreeviewSelect>>', self.on_item_select)
-
-        self.map_label = customtkinter.CTkLabel(
-            self.frame_left, text='Tile Server:', anchor='w')
-        self.map_label.grid(row=3, column=0, padx=(20, 20), pady=(20, 0))
-
-        self.map_option_menu = customtkinter.CTkOptionMenu(self.frame_left, values=[
-                                                           "OpenStreetMap", "Google Normal", "Google Sat"], command=self.change_map)
-        self.map_option_menu.grid(row=4, column=0, padx=(20, 20), pady=(10, 0))
-
-        self.appearance_mode_label = customtkinter.CTkLabel(
-            self.frame_left, text='Appearance Mode:', anchor='w')
-        self.appearance_mode_label.grid(
-            row=5, column=0, padx=(20, 20), pady=(20, 0))
-
-        self.appearance_mode_optionmenu = customtkinter.CTkOptionMenu(self.frame_left, values=["Light", "Dark", "System"],
-                                                                      command=self.change_appearance_mode)
-        self.appearance_mode_optionmenu.grid(
-            row=6, column=0, padx=(20, 20), pady=(10, 20))
 
         # frame_right
 
@@ -137,8 +149,6 @@ class App(customtkinter.CTk):
 
         # Set default values
         self.map_widget.set_address('taylorsville, utah')
-        self.map_option_menu.set("OpenStreetMap")
-        self.appearance_mode_optionmenu.set('Dark')
 
     def search_event(self, event=None):
         self.map_widget.set_address(self.entry.get())
@@ -162,9 +172,6 @@ class App(customtkinter.CTk):
         for iid in self.marker_list:
             self.treeview.delete(iid)
         self.marker_list.clear()
-
-    def change_appearance_mode(self, new_appearance_mode: str):
-        customtkinter.set_appearance_mode(new_appearance_mode)
 
     def change_map(self, new_map: str):
         if new_map == 'OpenStreetMap':
