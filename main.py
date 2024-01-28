@@ -12,11 +12,35 @@ import os
 customtkinter.set_default_color_theme("blue")
 
 
-def decimal_coords(coords, ref):
+def coords_dms_to_float(coords, ref):
     decimal_degrees = coords[0] + coords[1] / 60 + coords[2] / 3600
     if ref == "S" or ref == 'W':
         decimal_degrees = -decimal_degrees
     return decimal_degrees
+
+
+def coords_float_to_dms(lat, long):
+    def decimal_degrees_to_dms(value, is_lat):
+        direction = 'N' if is_lat else 'E'
+        if value < 0:
+            direction = 'S' if is_lat else 'W'
+            value = abs(value)
+        deg = int(value)
+        min = int((value - deg) * 60)
+        sec = (value - deg - min/60) * 3600
+
+        return {
+            'tup': (deg, min, sec),
+            'ref': direction,
+        }
+
+    lat_dict = decimal_degrees_to_dms(lat, True)
+    long_dict = decimal_degrees_to_dms(long, False)
+
+    return {
+        'lat': lat_dict,
+        'long': long_dict,
+    }
 
 
 class App(customtkinter.CTk):
@@ -62,6 +86,7 @@ class App(customtkinter.CTk):
         self.config(menu=menubar)
 
         self.marker_list = dict()  # <treeview iid, marker>
+        self.image_dict = dict()  # <treeview iid, absolute filepath>
 
         # --Theme ttk Treeview
         bg_color = self._apply_appearance_mode(
@@ -209,13 +234,20 @@ class App(customtkinter.CTk):
     def on_item_select(self, event=None):
         iid = self.treeview.selection()[0]
         # TODO: Handle that this might be a folder instead of a single item
-        marker = self.marker_list[iid]
-        self.map_widget.set_position(marker.position[0], marker.position[1])
-        self.selected_label.configure(text=self.treeview.item(iid)['text'])
-        self.lat_str.set(str(marker.position[0]))
-        self.long_str.set(str(marker.position[1]))
+        if iid in self.marker_list:
+            marker = self.marker_list[iid]
+            self.map_widget.set_position(
+                marker.position[0], marker.position[1])
+            self.selected_label.configure(text=self.treeview.item(iid)['text'])
+            self.lat_str.set(str(marker.position[0]))
+            self.long_str.set(str(marker.position[1]))
+        else:
+            self.selected_label.configure(text=self.treeview.item(iid)['text'])
+            self.lat_str.set('')
+            self.long_str.set('')
 
     # Event Listener for left click on the map
+
     def on_coord_select(self, coords):
         if self.sel_coords:
             self.sel_coords.set_position(coords[0], coords[1])
@@ -248,6 +280,17 @@ class App(customtkinter.CTk):
                                    new_coords[1]
                                    )
                            )
+        # Update image file
+        if iid in self.image_dict:
+            with open(self.image_dict[iid], 'rb') as image_file:
+                img = Ex_Image(image_file)
+            coord_dict = coords_float_to_dms(new_coords[0], new_coords[1])
+            img.gps_latitude = coord_dict['lat']['tup']
+            img.gps_latitude_ref = coord_dict['lat']['ref']
+            img.gps_longitude = coord_dict['long']['tup']
+            img.gps_longitude_ref = coord_dict['long']['ref']
+            with open(self.image_dict[iid], 'wb') as image_file:
+                image_file.write(img.get_file())
 
     # Event Listener for the 'Set Marker' button
     def set_marker_event(self):
@@ -290,15 +333,15 @@ class App(customtkinter.CTk):
             img = Ex_Image(src)
         if img.has_exif:
             try:
-                coords = (decimal_coords(img.gps_latitude, img.gps_latitude_ref),
-                          decimal_coords(img.gps_longitude, img.gps_longitude_ref))
+                coords = (coords_dms_to_float(img.gps_latitude, img.gps_latitude_ref),
+                          coords_dms_to_float(img.gps_longitude, img.gps_longitude_ref))
             except:
                 # print('Image has no coords')
                 iid = self.treeview.insert(
                     '',
                     tkinter.END,
                     text=os.path.basename(filename),
-                    tags=('image')
+                    tags=('item')
                 )
                 return
         else:
@@ -324,6 +367,8 @@ class App(customtkinter.CTk):
         )
         # store reference to map marker
         self.marker_list[iid] = mark
+        # store reference to file
+        self.image_dict[iid] = filename
         # center map on new marker
         self.map_widget.set_position(coords[0], coords[1])
 
