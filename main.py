@@ -5,11 +5,12 @@ import tkinter.filedialog
 import tkintermapview
 from tkintermapview import TkinterMapView
 from exif import Image as Ex_Image
-from PIL import ImageTk
+from PIL import ImageTk, ImageOps
 from PIL import Image as Pil_Image
 import os
 
 customtkinter.set_default_color_theme("blue")
+IMAGE_EXT = ('.jpg', '.jpeg', '.png')
 
 
 def coords_dms_to_float(coords, ref):
@@ -27,7 +28,7 @@ def coords_float_to_dms(lat, long):
             value = abs(value)
         deg = int(value)
         min = int((value - deg) * 60)
-        sec = (value - deg - min/60) * 3600
+        sec = (value - deg - min / 60) * 3600
 
         return {
             'tup': (deg, min, sec),
@@ -69,6 +70,7 @@ class App(customtkinter.CTk):
         file_menu = tkinter.Menu(menubar, tearoff=0)
         menubar.add_cascade(label='File', menu=file_menu)
         file_menu.add_command(label='Open Image', command=self.on_open_image)
+        file_menu.add_command(label='Open Folder', command=self.on_open_folder)
         file_menu.add_separator()
         file_menu.add_command(label='Exit', command=self.on_closing)
 
@@ -87,6 +89,7 @@ class App(customtkinter.CTk):
 
         self.marker_list = dict()  # <treeview iid, marker>
         self.image_dict = dict()  # <treeview iid, absolute filepath>
+        self.folders_dict = dict()  # <treeview iid, absolute folder path>
 
         # --Theme ttk Treeview
         bg_color = self._apply_appearance_mode(
@@ -149,7 +152,7 @@ class App(customtkinter.CTk):
 
         self.clear_mark_btn = customtkinter.CTkButton(master=self.frame_left,
                                                       text='Clear Markers',
-                                                      command=self.clear_marker_event)
+                                                      command=self.on_clear_markers)
         self.clear_mark_btn.grid(pady=(20, 0), padx=(20, 20), row=1, column=0)
 
         self.treeview = ttk.Treeview(
@@ -165,7 +168,11 @@ class App(customtkinter.CTk):
         self.treeview.grid(row=2, column=0, pady=(
             20, 0), padx=5, sticky='nsew')
         self.treeview.tag_bind(
-            'item', '<<TreeviewSelect>>', self.on_item_select)
+            'item', '<<TreeviewSelect>>', self.on_item_select
+        )
+        self.treeview.tag_bind(
+            'folder', '<<TreeviewOpen>>', self.on_item_expand
+        )
 
         # --frame_center
 
@@ -223,6 +230,10 @@ class App(customtkinter.CTk):
             self.frame_right, text='Update Location', command=self.on_update_location)
         self.update_loc_btn.grid(row=3, column=0, columnspan=2, sticky='ew')
 
+        self.img_preview = None
+        self.img_holder = customtkinter.CTkLabel(self.frame_right, image=self.img_preview, text='')
+        self.img_holder.grid(row=4, column=0, columnspan=2, sticky='ew')
+
         # Set default values
         self.map_widget.set_address('taylorsville, utah')
         self.sel_coords = None
@@ -246,6 +257,16 @@ class App(customtkinter.CTk):
             self.lat_str.set('')
             self.long_str.set('')
 
+        if iid in self.image_dict:
+            img = Pil_Image.open(self.image_dict[iid])
+            img.thumbnail((200, 200))
+            self.img_preview = customtkinter.CTkImage(img, size=(200, 200))
+            self.img_holder.configure(image=self.img_preview)
+
+    def on_item_expand(self, event=None):
+        iid = self.treeview.selection()[0]
+        self.load_subitems(iid)
+
     # Event Listener for left click on the map
 
     def on_coord_select(self, coords):
@@ -264,14 +285,12 @@ class App(customtkinter.CTk):
     #  in the treeview to the location that is selected on the map
     # TODO: Escape to unselect a location on the map?
     def on_update_location(self, event=None):
-        if self.sel_coords == None:
+        if self.sel_coords is None:
             return
         # TODO: Handle multiple things selected at once
         new_coords = self.sel_coords.position
-        # Update on map
         iid = self.treeview.selection()[0]
-        marker = self.marker_list[iid]
-        marker.set_position(new_coords[0], new_coords[1])
+
         # Update in treeview
         self.treeview.item(iid,
                            values=(tkintermapview.convert_coordinates_to_city(new_coords[0],
@@ -280,6 +299,12 @@ class App(customtkinter.CTk):
                                    new_coords[1]
                                    )
                            )
+
+        # Update on map
+        if iid in self.marker_list:
+            marker = self.marker_list[iid]
+            marker.set_position(new_coords[0], new_coords[1])
+
         # Update image file
         if iid in self.image_dict:
             with open(self.image_dict[iid], 'rb') as image_file:
@@ -291,6 +316,16 @@ class App(customtkinter.CTk):
             img.gps_longitude_ref = coord_dict['long']['ref']
             with open(self.image_dict[iid], 'wb') as image_file:
                 image_file.write(img.get_file())
+
+            # if pin was not already on map, add it now
+            if iid not in self.marker_list:
+                img = Pil_Image.open(self.image_dict[iid])
+                img = ImageOps.contain(img, (100, 100))
+                self.marker_list[iid] = self.map_widget.set_marker(
+                    new_coords[0],
+                    new_coords[1],
+                    image=ImageTk.PhotoImage(img)
+                )
 
     # Event Listener for the 'Set Marker' button
     def set_marker_event(self):
@@ -312,11 +347,105 @@ class App(customtkinter.CTk):
 
     # Event listener for the 'Clear Markers' button
     # Removes all markers from the map and all items from the treeview
-    def clear_marker_event(self):
+    def on_clear_markers(self):
         self.map_widget.delete_all_marker()
         for iid in self.marker_list:
             self.treeview.delete(iid)
+        self.sel_coords = None
         self.marker_list.clear()
+
+    def insert_image(self, filename: str, parent=''):
+        with open(filename, 'rb') as src:
+            img = Ex_Image(src)
+        if img.has_exif:
+            try:
+                coords = (coords_dms_to_float(img.gps_latitude, img.gps_latitude_ref),
+                          coords_dms_to_float(img.gps_longitude, img.gps_longitude_ref))
+            except:
+                print('Image has no coords')
+                iid = self.treeview.insert(
+                    parent,
+                    tkinter.END,
+                    text=os.path.basename(filename),
+                    tags=('item')
+                )
+                self.image_dict[iid] = filename
+                return
+        else:
+            print('Image has no metadata')
+            return
+
+        # Add to treeview
+        iid = self.treeview.insert(
+            parent,
+            tkinter.END,
+            text=os.path.basename(filename),
+            tags='item',
+            values=(tkintermapview.convert_coordinates_to_city(
+                coords[0], coords[1]), coords[0], coords[1])
+        )
+
+        # Add to map
+        img = Pil_Image.open(filename)
+        img.thumbnail((100, 100))
+        mark = self.map_widget.set_marker(
+            coords[0],
+            coords[1],
+            image=ImageTk.PhotoImage(img)
+        )
+
+        # store reference to map marker
+        self.marker_list[iid] = mark
+        # store reference to file
+        self.image_dict[iid] = filename
+        # center map on new marker
+        self.map_widget.set_position(coords[0], coords[1])
+
+    # Given a the path to a folder, load it into the treeview
+    def load_tree(self, filepath, parent=''):
+        for obj in os.listdir(filepath):
+            objpath = os.path.join(filepath, obj)
+            # if obj is an image, insert it on its own
+            if obj.endswith(IMAGE_EXT):
+                self.insert_image(objpath, parent)
+            # if obj is a subfolder, insert it and it's children,
+            #   so that it's expandable
+            elif os.path.isdir(objpath):
+                child_iid = self.insert_folder(objpath, parent)
+                for subobj in os.listdir(objpath):
+                    subobj_path = os.path.join(objpath, subobj)
+                    if os.path.isdir(subobj_path):
+                        self.insert_folder(subobj_path, child_iid)
+                    elif subobj.endswith(IMAGE_EXT):
+                        self.insert_image(subobj_path, child_iid)
+
+    def load_subitems(self, iid):
+        pass
+        # for child_iid in self.treeview.get_children(iid):
+        #     if child_iid in self.folders_dict:
+        #         self.load_tree(self.folders_dict[child_iid],
+        #                        parent=child_iid)
+
+    def insert_folder(self, path, parent='') -> str:
+        iid = self.treeview.insert(
+            parent,
+            tkinter.END,
+            text=os.path.basename(path),
+            tags='folder'
+        )
+        self.folders_dict[iid] = path
+        return iid
+
+    # Spawn a folder dialog to select a folder, then add that folder
+    # as a new root item to the treeview
+    def on_open_folder(self):
+        filepath = tkinter.filedialog.askdirectory(
+            title='Open Folder', mustexist=True)
+        if filepath == '':
+            print('Open folder operation canceled')
+            return
+        parent_iid = self.insert_folder(filepath)
+        self.load_tree(filepath, parent_iid)
 
     # Event listener for the 'Open Image' option under the file menu
     #  Adds the opened image to the treeview, and if it has location metadata,
@@ -329,48 +458,7 @@ class App(customtkinter.CTk):
             return
 
         print(f'Opening {filename}')
-        with open(filename, 'rb') as src:
-            img = Ex_Image(src)
-        if img.has_exif:
-            try:
-                coords = (coords_dms_to_float(img.gps_latitude, img.gps_latitude_ref),
-                          coords_dms_to_float(img.gps_longitude, img.gps_longitude_ref))
-            except:
-                # print('Image has no coords')
-                iid = self.treeview.insert(
-                    '',
-                    tkinter.END,
-                    text=os.path.basename(filename),
-                    tags=('item')
-                )
-                return
-        else:
-            print('Image has no metadata')
-            return
-
-        # Add to treeview
-        iid = self.treeview.insert(
-            '',
-            tkinter.END,
-            text=os.path.basename(filename),
-            tags='item',
-            values=(tkintermapview.convert_coordinates_to_city(
-                coords[0], coords[1]), coords[0], coords[1])
-        )
-        # Add to map
-        mark = self.map_widget.set_marker(
-            coords[0],
-            coords[1],
-            image=ImageTk.PhotoImage(
-                Pil_Image.open(filename).resize((100, 100))
-            )
-        )
-        # store reference to map marker
-        self.marker_list[iid] = mark
-        # store reference to file
-        self.image_dict[iid] = filename
-        # center map on new marker
-        self.map_widget.set_position(coords[0], coords[1])
+        self.insert_image(filename)
 
     def on_closing(self, event=0):
         self.destroy()
